@@ -1,0 +1,220 @@
+---
+title: "Practical Machine Learning Project"
+author: "Choon Guan TAN"
+date: "October 2, 2016"
+output: 
+    pdf_document: default
+    html_document:
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. 
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it (ie. the quality of the activity). 
+
+In a study around the quality of exercise performed (Read more: http://groupware.les.inf.puc-rio.br/har#ixzz4LtaPzQ77), a group of 6 participants was asked to perform barbell lifts correctly and incorrectly in 5 different ways. Data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants were then captured to determine if there are any underlying characteristics which can be used to predict the quality of the exercise.
+
+The goal of this project is to develop a model using the test data gathered from the study and be able to apply it to predict the quality of the exerise based on the way the exercise was performed.
+
+The eventual model selected, with the highest prediction accuracy, was based on developed based on the random forest approach.
+
+
+## 1. Getting and Cleaning Data
+
+### 1.1 Downloading the training and test data
+
+```{R Getting Data, echo=TRUE}
+
+setwd("~/Data Science/Module 8 Machine Learning/Project")
+
+# Download Training Data file
+
+if(!file.exists("pml-training.csv")) {
+    temp <- tempfile()
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","pml-training.csv")
+}
+
+
+# Download Test Data file
+
+if(!file.exists("pml-testing.csv")) {
+    temp <- tempfile()
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv","pml-testing.csv")
+}
+
+```
+
+### 1.2 Data Review and Cleansing
+
+We will review and clean the training data set. The testing data set will be set aside and used to revalidate our model once we have completed training and validating our model.
+
+
+```{R Reviewing data, echo=TRUE}
+
+# Review Training Dataset.
+
+Trgdata<- read.csv("pml-training.csv", na.strings=c("NA",""), header=TRUE)
+
+str(Trgdata)
+summary(Trgdata)
+
+# Check for near zero variance using the Caret package.
+
+library(caret)
+nzv <- nearZeroVar(Trgdata, saveMetrics=TRUE)
+nzv
+
+```
+
+From our initial review of the training data set,
+
+1. The data set consists of 19622 records of 160 variables.
+2. Columns 1 to 7 are "admin" related variables (eg. time-stamp, user names) that will not have any impact to the outcome of our model.
+3. A large number of variables largely consist of "NA"s. Again, these variables will not contribute to the explanatory power of our model.
+4. A number of variables have near zero variances (eg.Kurtosis_roll_belt). These are factor variables with a high number of "NA"s.
+
+We will refine the training data set by removing columns 1 to 7, as well as, all the variables which are mainly made up of "NA"s..
+
+
+```{R Cleaning data, echo=TRUE}
+
+# Remove variables 1 to 7
+
+TrgdataV1 <- Trgdata[, -(1:7)]
+
+# Remove all NA data
+
+NA_columns<- colnames(TrgdataV1)[colSums(is.na(TrgdataV1)) > 0] 
+TrgdataV2<- TrgdataV1[,!(names(TrgdataV1) %in% NA_columns)]
+
+```
+
+A review of the parameters of the refined training data set confirms we now have usable and more meaningful data set to work on.
+
+```{R Recheck data, echo=TRUE}
+
+# Review the cleaned Training Dataset.
+
+str(TrgdataV2)
+summary(TrgdataV2)
+
+# Recheck for near zero variance using the Caret package.
+
+nzv2 <- nearZeroVar(TrgdataV2, saveMetrics=TRUE)
+nzv2
+
+```
+
+### 1.3 Partitioning the Training Dataset for Cross Validation
+
+Instead of further partitioning the refined training data set, we will utilise the <trainControl> function in the Caret package to perform a k-fold cross validation of the model. The approach is robust and will provide us an estimate the accuracy of our model.
+
+We have elected to use 7 folds to cross validate our model.
+
+
+```{R Partition data, echo=TRUE}
+
+# Setup train control parameters
+
+trg_ctr <- trainControl(method = "cv", number = 7, verboseIter=FALSE)
+
+
+```
+
+
+## 3. Model Development
+
+For the purpose of this project, we will be testing and comparing the validity of the following 2 popular models:
+
+1. Random Forest
+2. GBM model
+
+
+### 3.1 Training the Random Forest Model.
+
+```{R RF_train, echo=TRUE}
+
+# Training Random Forest Model
+
+set.seed(3333)
+
+rfmodel<- train(classe ~ ., data = TrgdataV2, method = "rf", trControl= trg_ctr, ntree=100)
+
+
+```
+
+### 3.2 Training the GBM Model.
+
+```{R GBM_train, echo=TRUE}
+
+# Training GBM Model
+
+GBMmodel<- train(classe ~ ., data = TrgdataV2, method = "gbm", trControl= trg_ctr, verbose=FALSE)
+
+
+```
+
+
+## 4. Model Review and Assessment
+
+Below is the table of results from summarizing the distributions for the 2 models:
+
+```{R Model Review1, echo=TRUE}
+
+# Collate model results
+
+library(mlbench)
+
+results <- resamples(list(GBM=GBMmodel, RF=rfmodel))
+summary(results)
+
+
+```
+
+From the statistics above, the Random Forest (RF) model consistently outperform the GBM model with in both accuracy and Kappa. 
+
+The boxplot and dotplot of the result below also indicates the distribution of the results of the RF model to be tighter vs. the GBM model.
+
+
+```{R Model Review2, echo=TRUE}
+
+# Visual summary of model results.
+
+bwplot(results)
+dotplot(results)
+
+```
+
+
+## 6. Conclusion
+
+The model developed based on the random forest approach provides us the most accurate model that can be used to predict the quality of the exerise performed.
+
+We will apply this model against the test data set to answer the prediction quiz questions of this project.
+
+
+
+## 7.Prediction Quiz: Applying the RF Model
+
+As a final step, we will use the validation data sample ('pml-testing.csv') to predict a classe for each of the 20 observations, based on the parameters identified in our test model.
+
+Prediction results for the 20 problem ids appended below.
+
+```{R Prediction, echo=TRUE}
+
+Testdata<- read.csv("pml-testing.csv", na.strings=c("NA",""), header=TRUE)
+
+(predict(rfmodel, Testdata))
+
+```
+
+
+
+
+
